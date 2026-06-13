@@ -15,6 +15,7 @@ export default function PreJoinCheck({ participantName, role, onJoin }: Props) {
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [videoEnabled, setVideoEnabled] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [errorKind, setErrorKind] = useState<"permission" | "busy" | "other" | null>(null);
   const [devices, setDevices] = useState<{ cameras: MediaDeviceInfo[]; mics: MediaDeviceInfo[] }>({ cameras: [], mics: [] });
 
   useEffect(() => {
@@ -22,10 +23,16 @@ export default function PreJoinCheck({ participantName, role, onJoin }: Props) {
     return () => stream?.getTracks().forEach((t) => t.stop());
   }, []);
 
-  async function requestMedia() {
+  async function requestMedia(audioOnly = false) {
+    setError(null);
+    setErrorKind(null);
     try {
-      const s = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      const constraints = audioOnly
+        ? { video: false, audio: true }
+        : { video: true, audio: true };
+      const s = await navigator.mediaDevices.getUserMedia(constraints);
       setStream(s);
+      if (audioOnly) setVideoEnabled(false);
       if (videoRef.current) videoRef.current.srcObject = s;
 
       const allDevices = await navigator.mediaDevices.enumerateDevices();
@@ -33,8 +40,18 @@ export default function PreJoinCheck({ participantName, role, onJoin }: Props) {
         cameras: allDevices.filter((d) => d.kind === "videoinput"),
         mics: allDevices.filter((d) => d.kind === "audioinput"),
       });
-    } catch (err) {
-      setError("Could not access camera/microphone. Please allow permissions and refresh.");
+    } catch (err: unknown) {
+      const name = (err as { name?: string }).name;
+      if (name === "NotReadableError" || name === "TrackStartError") {
+        setErrorKind("busy");
+        setError("Camera is in use by another app or browser tab.");
+      } else if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+        setErrorKind("permission");
+        setError("Camera/microphone permission denied. Allow access in browser settings.");
+      } else {
+        setErrorKind("other");
+        setError("Could not access camera/microphone.");
+      }
     }
   }
 
@@ -69,13 +86,28 @@ export default function PreJoinCheck({ participantName, role, onJoin }: Props) {
           {error ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center p-6">
               <AlertCircle className="w-10 h-10 text-red-400" />
-              <p className="text-red-400 text-sm">{error}</p>
-              <button
-                onClick={requestMedia}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm"
-              >
-                Retry
-              </button>
+              <p className="text-red-400 text-sm max-w-xs">{error}</p>
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <button
+                  onClick={() => requestMedia()}
+                  className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-sm"
+                >
+                  Retry
+                </button>
+                {errorKind === "busy" && (
+                  <button
+                    onClick={() => requestMedia(true)}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm"
+                  >
+                    Join audio-only
+                  </button>
+                )}
+              </div>
+              {errorKind === "busy" && (
+                <p className="text-xs text-slate-500 max-w-xs">
+                  Close the other browser tab using the camera, then retry.
+                </p>
+              )}
             </div>
           ) : (
             <>
@@ -138,7 +170,7 @@ export default function PreJoinCheck({ participantName, role, onJoin }: Props) {
             </div>
             <button
               onClick={handleJoin}
-              disabled={!!error}
+              disabled={!stream}
               className="flex items-center gap-2 px-6 py-3 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl font-semibold transition-colors"
             >
               <Phone className="w-4 h-4" />

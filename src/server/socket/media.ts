@@ -113,13 +113,22 @@ export function registerMediaNamespace(io: SocketIOServer) {
         name,
       });
 
-      const existingProducers: { producerId: string; participantId: string; kind: string; appData: unknown }[] = [];
+      const peerNames: Record<string, string> = {};
+      socketParticipants.forEach((info) => {
+        if (info.sessionId === sessionId && info.participantId !== participantId) {
+          peerNames[info.participantId] = info.name;
+        }
+      });
+
+      const existingProducers: { producerId: string; participantId: string; kind: string; name: string; appData: unknown }[] = [];
       room.producers.forEach((producer, pId) => {
         if (!pId.startsWith(participantId)) {
+          const peerId = pId.slice(0, pId.lastIndexOf("_"));
           existingProducers.push({
             producerId: producer.id,
-            participantId: pId.split("_")[0],
+            participantId: peerId,
             kind: producer.kind,
+            name: peerNames[peerId] || "Participant",
             appData: producer.appData,
           });
         }
@@ -142,12 +151,33 @@ export function registerMediaNamespace(io: SocketIOServer) {
         const transportId = `${participantId}_${data.direction}_${Date.now()}`;
         const transport = await createWebRtcTransport(room, transportId);
 
+        const iceServers = [
+          { urls: "stun:stun.l.google.com:19302" },
+          { urls: "stun:openrelay.metered.live:80" },
+          {
+            urls: "turn:openrelay.metered.live:80",
+            username: "openrelayproject",
+            credential: "openrelayprojectsecret",
+          },
+          {
+            urls: "turn:openrelay.metered.live:443",
+            username: "openrelayproject",
+            credential: "openrelayprojectsecret",
+          },
+          {
+            urls: "turns:openrelay.metered.live:443",
+            username: "openrelayproject",
+            credential: "openrelayprojectsecret",
+          },
+        ];
+
         callback({
           id: transport.id,
           iceParameters: transport.iceParameters,
           iceCandidates: transport.iceCandidates,
           dtlsParameters: transport.dtlsParameters,
           transportId,
+          iceServers,
         });
       } catch (err) {
         logger.error({ err }, "Error creating transport");
@@ -197,6 +227,7 @@ export function registerMediaNamespace(io: SocketIOServer) {
           producerId: producer.id,
           participantId,
           kind: data.kind,
+          name,
           appData: producer.appData,
         });
 

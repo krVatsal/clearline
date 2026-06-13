@@ -49,12 +49,15 @@ export default function CallRoom({
   const [sessionEnded, setSessionEnded] = useState(false);
   const [qualityStats, setQualityStats] = useState<QualityStats>({});
   const [connected, setConnected] = useState(false);
-  const [peerName, setPeerName] = useState<string | null>(null);
+  const [peerNames, setPeerNames] = useState<Map<string, string>>(new Map());
 
   const mediaSocketRef = useRef<Socket | null>(null);
   const deviceRef = useRef<mediasoupClient.Device | null>(null);
   const sendTransportRef = useRef<mediasoupClient.types.Transport | null>(null);
   const recvTransportRef = useRef<mediasoupClient.types.Transport | null>(null);
+  const recvTransportReadyRef = useRef<Promise<mediasoupClient.types.Transport> | null>(null);
+  const recvTransportKeyRef = useRef<string | null>(null);
+  const pendingProducersRef = useRef<{ producerId: string; participantId: string; kind: string; name?: string }[]>([]);
   const audioProducerRef = useRef<mediasoupClient.types.Producer | null>(null);
   const videoProducerRef = useRef<mediasoupClient.types.Producer | null>(null);
   const consumersRef = useRef<Map<string, mediasoupClient.types.Consumer>>(new Map());
@@ -79,17 +82,25 @@ export default function CallRoom({
       await device.load({ routerRtpCapabilities: rtpCapabilities });
       deviceRef.current = device;
 
+      recvTransportReadyRef.current = createRecvTransport(socket, device);
       await createSendTransport(socket, device, stream);
-      await createRecvTransport(socket, device);
+      await recvTransportReadyRef.current;
+
+      for (const { producerId, participantId: peerId, kind, name: peerName } of pendingProducersRef.current) {
+        if (peerName) setPeerNames((prev) => new Map(prev).set(peerId, peerName));
+        await consumeProducer(socket, producerId, peerId, kind);
+      }
+      pendingProducersRef.current = [];
     });
 
-    socket.on("producer:new", async ({ producerId, participantId: peerId, kind }) => {
+    socket.on("producer:new", async ({ producerId, participantId: peerId, kind, name: peerName }) => {
       if (peerId === participantId) return;
+      if (peerName) setPeerNames((prev) => new Map(prev).set(peerId, peerName));
       await consumeProducer(socket, producerId, peerId, kind);
     });
 
     socket.on("peer:joined", ({ participantId: peerId, name }) => {
-      setPeerName(name);
+      setPeerNames((prev) => new Map(prev).set(peerId, name));
     });
 
     socket.on("peer:left", ({ participantId: peerId }) => {
@@ -128,9 +139,13 @@ export default function CallRoom({
     });
 
     socket.on("room:joined", async ({ existingProducers }) => {
-      for (const { producerId, participantId: peerId, kind } of existingProducers) {
-        if (peerId !== participantId) {
+      for (const { producerId, participantId: peerId, kind, name: peerName } of existingProducers) {
+        if (peerId === participantId) continue;
+        if (peerName) setPeerNames((prev) => new Map(prev).set(peerId, peerName));
+        if (recvTransportReadyRef.current) {
           await consumeProducer(socket, producerId, peerId, kind);
+        } else {
+          pendingProducersRef.current.push({ producerId, participantId: peerId, kind, name: peerName });
         }
       }
     });
@@ -155,10 +170,10 @@ export default function CallRoom({
     device: mediasoupClient.Device,
     stream: MediaStream
   ) {
-    socket.emit("transport:create", { direction: "send" }, async (params: mediasoupClient.types.TransportOptions & { transportId: string }) => {
+    socket.emit("transport:create", { direction: "send" }, async (params: mediasoupClient.types.TransportOptions & { transportId: string; iceServers?: RTCIceServer[] }) => {
       if ("error" in params) return;
 
-      const transport = device.createSendTransport(params);
+      const transport = device.createSendTransport({ ...params, iceServers: params.iceServers });
       sendTransportRef.current = transport;
 
       transport.on("connect", ({ dtlsParameters }, callback, errback) => {
@@ -194,31 +209,37 @@ export default function CallRoom({
     });
   }
 
-  async function createRecvTransport(socket: Socket, device: mediasoupClient.Device) {
-    socket.emit("transport:create", { direction: "recv" }, (params: mediasoupClient.types.TransportOptions & { transportId: string }) => {
-      if ("error" in params) return;
+  function createRecvTransport(socket: Socket, device: mediasoupClient.Device): Promise<mediasoupClient.types.Transport> {
+    return new Promise((resolve, reject) => {
+      socket.emit("transport:create", { direction: "recv" }, (params: mediasoupClient.types.TransportOptions & { transportId: string; error?: string; iceServers?: RTCIceServer[] }) => {
+        if (params.error) return reject(new Error(params.error));
 
-      const transport = device.createRecvTransport(params);
-      recvTransportRef.current = transport;
+        const transport = device.createRecvTransport({ ...params, iceServers: params.iceServers });
+        recvTransportRef.current = transport;
+        recvTransportKeyRef.current = params.transportId;
 
-      transport.on("connect", ({ dtlsParameters }, callback, errback) => {
-        socket.emit("transport:connect", { transportId: params.transportId, dtlsParameters }, (res: { error?: string }) => {
-          if (res?.error) errback(new Error(res.error));
-          else callback();
+        transport.on("connect", ({ dtlsParameters }, callback, errback) => {
+          socket.emit("transport:connect", { transportId: params.transportId, dtlsParameters }, (res: { error?: string }) => {
+            if (res?.error) errback(new Error(res.error));
+            else callback();
+          });
         });
+
+        resolve(transport);
       });
     });
   }
 
   async function consumeProducer(socket: Socket, producerId: string, peerId: string, kind: string) {
     const device = deviceRef.current;
-    const recvTransport = recvTransportRef.current;
-    if (!device || !recvTransport) return;
+    if (!device) return;
+    const recvTransport = recvTransportRef.current ?? (recvTransportReadyRef.current ? await recvTransportReadyRef.current : null);
+    if (!recvTransport) return;
 
     socket.emit(
       "consumer:create",
       {
-        transportId: (recvTransport as mediasoupClient.types.Transport & { id: string }).id,
+        transportId: recvTransportKeyRef.current!,
         producerId,
         rtpCapabilities: device.rtpCapabilities,
       },
@@ -331,7 +352,7 @@ export default function CallRoom({
         <div className="flex items-center gap-3">
           <div className={`w-2.5 h-2.5 rounded-full ${connected ? "bg-green-400 animate-pulse" : "bg-red-400"}`} />
           <span className="text-white font-medium text-sm">
-            {peerName ? `Call with ${peerName}` : "Waiting for participant..."}
+            {peerNames.size > 0 ? `Call with ${Array.from(peerNames.values())[0]}` : "Waiting for participant..."}
           </span>
         </div>
         <div className="flex items-center gap-3">
@@ -361,7 +382,7 @@ export default function CallRoom({
                 <VideoTile
                   key={peerId}
                   stream={stream}
-                  name={peerName || "Participant"}
+                  name={peerNames.get(peerId) || "Participant"}
                   isLocal={false}
                   audioMuted={paused?.audio || false}
                   videoOff={paused?.video || false}

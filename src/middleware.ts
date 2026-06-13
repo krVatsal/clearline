@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
-import { verifyInviteToken } from "./lib/jwt";
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -42,11 +41,6 @@ export async function middleware(request: NextRequest) {
     }
 
     if (inviteToken) {
-      const payload = verifyInviteToken(inviteToken);
-      if (!payload || payload.sessionId !== sessionId) {
-        return NextResponse.redirect(new URL("/invalid-invite", request.url));
-      }
-
       const response = NextResponse.next();
       response.cookies.set(`customer_session_${sessionId}`, inviteToken, {
         httpOnly: true,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MicOff, VideoOff } from "lucide-react";
 
 interface Props {
@@ -13,12 +13,25 @@ interface Props {
 
 export default function VideoTile({ stream, name, isLocal, audioMuted, videoOff }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [trackCount, setTrackCount] = useState(0);
+
+  useEffect(() => {
+    if (!stream) return;
+    const update = () => setTrackCount(stream.getTracks().length);
+    stream.addEventListener("addtrack", update);
+    stream.addEventListener("removetrack", update);
+    update();
+    return () => {
+      stream.removeEventListener("addtrack", update);
+      stream.removeEventListener("removetrack", update);
+    };
+  }, [stream]);
 
   useEffect(() => {
     if (videoRef.current && stream) {
       videoRef.current.srcObject = stream;
     }
-  }, [stream]);
+  }, [stream, trackCount]);
 
   return (
     <div className="video-tile relative bg-slate-800 rounded-xl overflow-hidden flex items-center justify-center min-h-[200px]">
