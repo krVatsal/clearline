@@ -30,6 +30,10 @@ interface ParticipantInfo {
 
 const socketParticipants = new Map<string, ParticipantInfo>();
 
+function notifyAdmin(io: SocketIOServer, sessionId: string) {
+  io.of("/admin").emit("admin:session-changed", { sessionId });
+}
+
 export function registerMediaNamespace(io: SocketIOServer) {
   const media = io.of("/media");
 
@@ -112,6 +116,8 @@ export function registerMediaNamespace(io: SocketIOServer) {
         role,
         name,
       });
+
+      notifyAdmin(io, sessionId);
 
       const peerNames: Record<string, string> = {};
       socketParticipants.forEach((info) => {
@@ -442,6 +448,7 @@ export function registerMediaNamespace(io: SocketIOServer) {
       socketParticipants.delete(socket.id);
 
       socket.to(sessionId).emit("peer:left", { participantId, role, name });
+      notifyAdmin(io, sessionId);
 
       await markDisconnected(sessionId, participantId, 30);
 

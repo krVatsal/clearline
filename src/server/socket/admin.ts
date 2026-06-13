@@ -37,6 +37,8 @@ export function registerAdminNamespace(io: SocketIOServer) {
           forced: true,
         });
 
+        admin.emit("admin:session-changed", { sessionId: data.sessionId });
+
         callback?.({ ended: true });
       } catch (err) {
         logger.error({ err }, "Error force-ending session");

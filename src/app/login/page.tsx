@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { signIn } from "next-auth/react";
+import { signIn, getSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Video, Eye, EyeOff, Loader2, AlertCircle, Zap } from "lucide-react";
 
@@ -22,7 +22,9 @@ export default function LoginPage() {
     if (result?.error) {
       setError("Invalid email or password. Please try again.");
     } else {
-      router.push("/dashboard");
+      const session = await getSession();
+      const dest = session?.user?.role === "admin" ? "/admin" : "/dashboard";
+      router.push(dest);
       router.refresh();
     }
   }
