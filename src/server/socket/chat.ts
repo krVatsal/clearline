@@ -56,6 +56,28 @@ export function registerChatNamespace(io: SocketIOServer) {
 
     socket.emit("chat:history", history);
 
+    socket.on("chat:file", async (data: { url: string; name: string; size: number; type: string }, callback?: (res: unknown) => void) => {
+      try {
+        const message = await prisma.chatMessage.create({
+          data: {
+            id: uuidv4(),
+            session_id: sessionId,
+            sender_role: role,
+            sender_id: participantId,
+            sender_name: name,
+            type: "file",
+            file_url: data.url,
+            file_meta: { name: data.name, size: data.size, type: data.type },
+          },
+        });
+        chat.to(sessionId).emit("chat:message", message);
+        callback?.({ ok: true, id: message.id });
+      } catch (err) {
+        logger.error({ err }, "Error saving file message");
+        callback?.({ error: "Failed to send file" });
+      }
+    });
+
     socket.on("chat:message", async (data: { content: string }, callback?: (res: unknown) => void) => {
       try {
         const message = await prisma.chatMessage.create({

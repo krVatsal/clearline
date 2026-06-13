@@ -63,6 +63,8 @@ export default function CallRoom({
   const audioProducerRef = useRef<mediasoupClient.types.Producer | null>(null);
   const videoProducerRef = useRef<mediasoupClient.types.Producer | null>(null);
   const consumersRef = useRef<Map<string, mediasoupClient.types.Consumer>>(new Map());
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingChunksRef = useRef<Blob[]>([]);
 
   const authPayload = role === "agent"
     ? { agentUserId: participantId, sessionId, name: participantName }
@@ -319,8 +321,30 @@ export default function CallRoom({
     if (!socket || role !== "agent") return;
 
     if (recording) {
+      mediaRecorderRef.current?.stop();
       socket.emit("recording:stop", {}, () => {});
     } else {
+      if (!localStream) return;
+      recordingChunksRef.current = [];
+      const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
+        ? "video/webm;codecs=vp9,opus"
+        : "video/webm";
+      const recorder = new MediaRecorder(localStream, { mimeType });
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) recordingChunksRef.current.push(e.data);
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(recordingChunksRef.current, { type: "video/webm" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `clearline-recording-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.webm`;
+        a.click();
+        URL.revokeObjectURL(url);
+        recordingChunksRef.current = [];
+      };
+      recorder.start(1000);
+      mediaRecorderRef.current = recorder;
       socket.emit("recording:start", {}, () => {});
     }
   }
@@ -335,6 +359,9 @@ export default function CallRoom({
     return () => {
       mediaSocketRef.current?.disconnect();
       localStream?.getTracks().forEach((t) => t.stop());
+      if (mediaRecorderRef.current?.state !== "inactive") {
+        mediaRecorderRef.current?.stop();
+      }
     };
   }, []);
 
