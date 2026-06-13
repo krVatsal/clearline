@@ -3,17 +3,20 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Phone,
+  Video,
   Plus,
   Clock,
   MessageSquare,
   ExternalLink,
   Copy,
   CheckCircle2,
-  XCircle,
   LogOut,
-  LayoutDashboard,
   Shield,
+  X,
+  User,
+  Activity,
+  History,
+  Loader2,
 } from "lucide-react";
 import { signOut } from "next-auth/react";
 import Link from "next/link";
@@ -29,7 +32,7 @@ interface Session {
   eventCount: number;
 }
 
-interface User {
+interface UserType {
   id: string;
   name: string;
   email: string;
@@ -37,7 +40,7 @@ interface User {
 }
 
 interface Props {
-  user: User;
+  user: UserType;
   initialSessions: Session[];
 }
 
@@ -48,6 +51,9 @@ export default function DashboardClient({ user, initialSessions }: Props) {
   const [customerName, setCustomerName] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const activeSessions = sessions.filter((s) => s.status === "active");
+  const endedSessions = sessions.filter((s) => s.status !== "active");
 
   async function createSession() {
     setCreating(true);
@@ -74,7 +80,6 @@ export default function DashboardClient({ user, initialSessions }: Props) {
         ]);
         setShowCreate(false);
         setCustomerName("");
-
         await copyInviteLink(data.session.id, data.inviteToken);
         router.push(`/call/${data.session.id}`);
       }
@@ -101,155 +106,242 @@ export default function DashboardClient({ user, initialSessions }: Props) {
   function formatDuration(start: string, end: string | null) {
     const startMs = new Date(start).getTime();
     const endMs = end ? new Date(end).getTime() : Date.now();
-    const diffMs = endMs - startMs;
-    const mins = Math.floor(diffMs / 60000);
-    const secs = Math.floor((diffMs % 60000) / 1000);
+    const diff = endMs - startMs;
+    const mins = Math.floor(diff / 60000);
+    const secs = Math.floor((diff % 60000) / 1000);
     return `${mins}m ${secs}s`;
   }
 
-  return (
-    <div className="min-h-screen bg-slate-900">
-      <header className="border-b border-white/10 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
-              <Phone className="w-4 h-4 text-white" />
-            </div>
-            <span className="text-lg font-bold text-white">ClearLine</span>
-          </div>
+  function formatTime(iso: string) {
+    return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
 
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <LayoutDashboard className="w-4 h-4 text-slate-400" />
-              <span className="text-sm text-slate-300">{user.name}</span>
-              {user.role === "admin" && (
-                <Link href="/admin" className="flex items-center gap-1 px-2 py-1 bg-purple-500/10 border border-purple-500/20 rounded text-purple-400 text-xs">
-                  <Shield className="w-3 h-3" />
-                  Admin
-                </Link>
-              )}
-            </div>
-            <button
-              onClick={() => signOut({ callbackUrl: "/login" })}
-              className="flex items-center gap-2 px-3 py-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors text-sm"
-            >
-              <LogOut className="w-4 h-4" />
-              Sign out
-            </button>
+  return (
+    <div className="min-h-screen flex flex-col" style={{ background: "var(--surface-base)" }}>
+
+      {/* ── Top nav ── */}
+      <header
+        className="flex items-center justify-between px-6 py-3 flex-shrink-0"
+        style={{ borderBottom: "1px solid var(--border-subtle)" }}
+      >
+        <div className="flex items-center gap-3">
+          <div
+            className="w-8 h-8 rounded-xl flex items-center justify-center"
+            style={{ background: "var(--primary-500)" }}
+          >
+            <Video className="w-4 h-4 text-white" />
           </div>
+          <span className="font-bold text-base" style={{ color: "var(--neutral-100)" }}>ClearLine</span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {user.role === "admin" && (
+            <Link
+              href="/admin"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+              style={{
+                background: "oklch(42% 0.20 280 / 0.12)",
+                color: "oklch(72% 0.18 280)",
+                border: "1px solid oklch(42% 0.20 280 / 0.25)",
+              }}
+            >
+              <Shield className="w-3 h-3" />
+              Admin
+            </Link>
+          )}
+          <div
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg"
+            style={{ background: "var(--surface-raised)", border: "1px solid var(--border-subtle)" }}
+          >
+            <div
+              className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold"
+              style={{ background: "var(--primary-600)", color: "white" }}
+            >
+              {user.name?.charAt(0).toUpperCase()}
+            </div>
+            <span className="text-sm" style={{ color: "var(--neutral-300)" }}>{user.name}</span>
+          </div>
+          <button
+            onClick={() => signOut({ callbackUrl: "/login" })}
+            className="cl-btn-ghost p-2 rounded-xl"
+            title="Sign out"
+            style={{ padding: "8px" }}
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        <div className="flex items-center justify-between mb-8">
+      <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-8 space-y-8 animate-fade-in">
+
+        {/* ── Stats row ── */}
+        <div className="grid grid-cols-3 gap-4">
+          {[
+            {
+              label: "Active sessions",
+              value: activeSessions.length,
+              icon: <Activity className="w-4 h-4" />,
+              accent: "oklch(55% 0.18 145)",
+              bg: "oklch(55% 0.18 145 / 0.08)",
+              live: activeSessions.length > 0,
+            },
+            {
+              label: "Total sessions",
+              value: sessions.length,
+              icon: <Video className="w-4 h-4" />,
+              accent: "var(--primary-400)",
+              bg: "oklch(55% 0.22 250 / 0.08)",
+              live: false,
+            },
+            {
+              label: "Messages sent",
+              value: sessions.reduce((a, s) => a + s.messageCount, 0),
+              icon: <MessageSquare className="w-4 h-4" />,
+              accent: "oklch(70% 0.16 85)",
+              bg: "oklch(70% 0.16 85 / 0.08)",
+              live: false,
+            },
+          ].map((stat) => (
+            <div
+              key={stat.label}
+              className="rounded-2xl p-5"
+              style={{ background: "var(--surface-raised)", border: "1px solid var(--border-subtle)" }}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-medium uppercase tracking-wider" style={{ color: "var(--neutral-500)" }}>
+                  {stat.label}
+                </span>
+                <div className="p-1.5 rounded-lg" style={{ background: stat.bg, color: stat.accent }}>
+                  {stat.icon}
+                </div>
+              </div>
+              <div className="flex items-end gap-2">
+                <span className="text-3xl font-bold" style={{ color: "var(--neutral-50)" }}>
+                  {stat.value}
+                </span>
+                {stat.live && (
+                  <span className="mb-1 flex items-center gap-1 text-xs" style={{ color: stat.accent }}>
+                    <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: stat.accent }} />
+                    live
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* ── Sessions header ── */}
+        <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-white">Support Dashboard</h1>
-            <p className="text-slate-400 mt-1">Manage your video support sessions</p>
+            <h1 className="text-xl font-bold" style={{ color: "var(--neutral-50)" }}>Sessions</h1>
+            <p className="text-sm mt-0.5" style={{ color: "var(--neutral-500)" }}>
+              Your video support calls
+            </p>
           </div>
           <button
             onClick={() => setShowCreate(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
+            className="cl-btn-primary"
           >
             <Plus className="w-4 h-4" />
             New Session
           </button>
         </div>
 
-        {showCreate && (
-          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-            <div className="bg-slate-800 border border-white/10 rounded-2xl p-6 w-full max-w-md">
-              <h2 className="text-lg font-semibold text-white mb-4">Create Support Session</h2>
-              <div className="mb-4">
-                <label className="block text-sm text-slate-400 mb-2">Customer Name (optional)</label>
-                <input
-                  type="text"
-                  value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                  placeholder="e.g. John Smith"
-                  className="w-full px-4 py-3 bg-slate-700 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-              <p className="text-sm text-slate-400 mb-6">
-                An invite link will be generated and copied to your clipboard.
-              </p>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShowCreate(false)}
-                  className="flex-1 px-4 py-2 bg-white/5 hover:bg-white/10 text-white rounded-lg transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={createSession}
-                  disabled={creating}
-                  className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg font-medium transition-colors"
-                >
-                  {creating ? "Creating..." : "Create & Join"}
-                </button>
-              </div>
+        {/* ── Session list ── */}
+        {sessions.length === 0 ? (
+          <div
+            className="rounded-2xl p-16 text-center"
+            style={{ background: "var(--surface-raised)", border: "1px solid var(--border-subtle)" }}
+          >
+            <div
+              className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4"
+              style={{ background: "var(--surface-overlay)" }}
+            >
+              <Video className="w-7 h-7" style={{ color: "var(--neutral-500)" }} />
             </div>
+            <p className="font-semibold mb-1" style={{ color: "var(--neutral-300)" }}>No sessions yet</p>
+            <p className="text-sm" style={{ color: "var(--neutral-500)" }}>
+              Create your first session to get started
+            </p>
           </div>
-        )}
-
-        <div className="grid gap-4">
-          {sessions.length === 0 ? (
-            <div className="text-center py-16 text-slate-500">
-              <Phone className="w-12 h-12 mx-auto mb-4 opacity-30" />
-              <p className="text-lg">No sessions yet</p>
-              <p className="text-sm mt-1">Create your first support session above</p>
-            </div>
-          ) : (
-            sessions.map((session) => (
+        ) : (
+          <div className="space-y-2">
+            {sessions.map((session, i) => (
               <div
                 key={session.id}
-                className="bg-white/5 border border-white/10 rounded-xl p-5 flex items-center gap-4"
+                className="group flex items-center gap-4 rounded-xl px-5 py-4 transition-colors"
+                style={{
+                  background: "var(--surface-raised)",
+                  border: "1px solid var(--border-subtle)",
+                  animationDelay: `${i * 40}ms`,
+                }}
               >
-                <div className={`w-3 h-3 rounded-full flex-shrink-0 ${
-                  session.status === "active" ? "bg-green-400 animate-pulse" : "bg-slate-500"
-                }`} />
+                {/* Status dot */}
+                <div className="flex-shrink-0">
+                  {session.status === "active" ? (
+                    <div className="relative">
+                      <div
+                        className="w-2.5 h-2.5 rounded-full"
+                        style={{ background: "oklch(55% 0.18 145)" }}
+                      />
+                      <div
+                        className="absolute inset-0 w-2.5 h-2.5 rounded-full animate-ping opacity-60"
+                        style={{ background: "oklch(55% 0.18 145)" }}
+                      />
+                    </div>
+                  ) : (
+                    <div className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--neutral-600)" }} />
+                  )}
+                </div>
 
+                {/* Customer info */}
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-medium text-white">
-                      {session.customer_name || "Customer"}
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="font-semibold text-sm truncate" style={{ color: "var(--neutral-100)" }}>
+                      {session.customer_name || "Anonymous Customer"}
                     </span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${
-                      session.status === "active"
-                        ? "bg-green-500/10 text-green-400 border border-green-500/20"
-                        : "bg-slate-500/10 text-slate-400 border border-slate-500/20"
-                    }`}>
+                    <span className={session.status === "active" ? "cl-badge-active" : "cl-badge-ended"}>
                       {session.status}
                     </span>
                   </div>
-                  <div className="flex items-center gap-4 text-sm text-slate-400">
-                    <span className="flex items-center gap-1">
+                  <div className="flex items-center gap-4">
+                    <span className="flex items-center gap-1 text-xs" style={{ color: "var(--neutral-500)" }}>
                       <Clock className="w-3 h-3" />
                       {formatDuration(session.created_at, session.ended_at)}
                     </span>
-                    <span className="flex items-center gap-1">
+                    <span className="flex items-center gap-1 text-xs" style={{ color: "var(--neutral-500)" }}>
                       <MessageSquare className="w-3 h-3" />
-                      {session.messageCount} msgs
+                      {session.messageCount}
+                    </span>
+                    <span className="text-xs" style={{ color: "var(--neutral-600)" }}>
+                      {formatTime(session.created_at)}
                     </span>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 flex-shrink-0">
+                {/* Actions */}
+                <div className="flex items-center gap-1.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
                     onClick={() => copyInviteLink(session.id)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 text-slate-300 rounded-lg text-sm transition-colors"
+                    title="Copy invite link"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                    style={{
+                      background: copiedId === session.id ? "oklch(55% 0.18 145 / 0.12)" : "var(--surface-overlay)",
+                      color: copiedId === session.id ? "oklch(70% 0.18 145)" : "var(--neutral-300)",
+                      border: "1px solid var(--border-subtle)",
+                    }}
                   >
-                    {copiedId === session.id ? (
-                      <CheckCircle2 className="w-3.5 h-3.5 text-green-400" />
-                    ) : (
-                      <Copy className="w-3.5 h-3.5" />
-                    )}
-                    {copiedId === session.id ? "Copied!" : "Copy Link"}
+                    {copiedId === session.id
+                      ? <><CheckCircle2 className="w-3.5 h-3.5" /> Copied</>
+                      : <><Copy className="w-3.5 h-3.5" /> Copy link</>
+                    }
                   </button>
 
                   {session.status === "active" && (
                     <Link
                       href={`/call/${session.id}`}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-colors"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium cl-btn-primary"
+                      style={{ padding: "6px 12px" }}
                     >
                       <ExternalLink className="w-3.5 h-3.5" />
                       Rejoin
@@ -258,16 +350,96 @@ export default function DashboardClient({ user, initialSessions }: Props) {
 
                   <Link
                     href={`/sessions/${session.id}`}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 text-slate-300 rounded-lg text-sm transition-colors"
+                    title="Session history"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                    style={{
+                      background: "var(--surface-overlay)",
+                      color: "var(--neutral-400)",
+                      border: "1px solid var(--border-subtle)",
+                    }}
                   >
+                    <History className="w-3.5 h-3.5" />
                     History
                   </Link>
                 </div>
               </div>
-            ))
-          )}
-        </div>
+            ))}
+          </div>
+        )}
       </main>
+
+      {/* ── Create session modal ── */}
+      {showCreate && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: "oklch(0% 0 0 / 0.7)" }}
+          onClick={(e) => e.target === e.currentTarget && setShowCreate(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl p-6 animate-slide-up"
+            style={{ background: "var(--surface-overlay)", border: "1px solid var(--border-default)" }}
+          >
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-lg font-bold" style={{ color: "var(--neutral-50)" }}>
+                  New support session
+                </h2>
+                <p className="text-sm mt-0.5" style={{ color: "var(--neutral-500)" }}>
+                  Invite link will be copied to clipboard
+                </p>
+              </div>
+              <button
+                onClick={() => setShowCreate(false)}
+                className="cl-btn-ghost p-1.5 rounded-lg"
+                style={{ padding: "6px" }}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-1.5 mb-6">
+              <label
+                htmlFor="customerName"
+                className="block text-xs font-medium uppercase tracking-wider"
+                style={{ color: "var(--neutral-400)" }}
+              >
+                Customer name <span style={{ color: "var(--neutral-600)" }}>(optional)</span>
+              </label>
+              <input
+                id="customerName"
+                type="text"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && createSession()}
+                placeholder="e.g. Jane Smith"
+                autoFocus
+                className="cl-input"
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowCreate(false)}
+                className="cl-btn-ghost flex-1"
+                style={{ border: "1px solid var(--border-subtle)" }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={createSession}
+                disabled={creating}
+                className="cl-btn-primary flex-1"
+              >
+                {creating ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Creating…</>
+                ) : (
+                  <><Video className="w-4 h-4" /> Create & Join</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

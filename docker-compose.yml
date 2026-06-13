@@ -5,15 +5,15 @@ services:
     image: postgres:16-alpine
     container_name: clearline_postgres
     environment:
-      POSTGRES_USER: clearline
-      POSTGRES_PASSWORD: clearline_pass
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
       POSTGRES_DB: clearline_db
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U clearline -d clearline_db"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d clearline_db"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -55,7 +55,7 @@ services:
       dockerfile: Dockerfile
     container_name: clearline_app
     environment:
-      DATABASE_URL: postgresql://clearline:clearline_pass@postgres:5432/clearline_db
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/clearline_db
       REDIS_URL: redis://redis:6379
       NEXTAUTH_SECRET: supersecretkey-change-in-production-minimum-32-chars
       NEXTAUTH_URL: http://localhost:3000
