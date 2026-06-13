@@ -39,6 +39,7 @@ export default function ChatPanel({
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [socket, setSocket] = useState<Socket | null>(null);
+  const socketRef = useRef<Socket | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -60,9 +61,11 @@ export default function ChatPanel({
     });
 
     s.on("chat:message", (msg: Message) => {
+      console.log("[chat] received chat:message", msg);
       setMessages((prev) => [...prev, msg]);
     });
 
+    socketRef.current = s;
     setSocket(s);
     return () => { s.disconnect(); };
   }, [sessionId]);
@@ -79,7 +82,11 @@ export default function ChatPanel({
 
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (!file || !socket) return;
+    const s = socketRef.current;
+    if (!file || !s) {
+      console.warn("[chat] handleFileSelect: no file or socket", { file, socket: s });
+      return;
+    }
     e.target.value = "";
     setUploadError("");
     setUploading(true);
@@ -94,7 +101,10 @@ export default function ChatPanel({
         throw new Error(err.error || "Upload failed");
       }
       const { url, name, size, type } = await res.json();
-      socket.emit("chat:file", { url, name, size, type });
+      console.log("[chat] upload done, emitting chat:file", { url, name, size, type });
+      s.emit("chat:file", { url, name, size, type }, (ack: unknown) => {
+        console.log("[chat] chat:file ack", ack);
+      });
     } catch (err: unknown) {
       setUploadError(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -131,7 +141,11 @@ export default function ChatPanel({
         {messages.map((msg) => {
           const isMine = msg.sender_role === role;
           const isFile = msg.type === "file";
-          const meta = msg.file_meta as FileMeta | null;
+          const rawMeta = msg.file_meta;
+          const meta: FileMeta | null =
+            rawMeta && typeof rawMeta === "object" && "name" in rawMeta
+              ? (rawMeta as FileMeta)
+              : null;
           return (
             <div
               key={msg.id}

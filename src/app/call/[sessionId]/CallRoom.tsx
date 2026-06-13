@@ -66,6 +66,9 @@ export default function CallRoom({
   const consumersRef = useRef<Map<string, mediasoupClient.types.Consumer>>(new Map());
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordingChunksRef = useRef<Blob[]>([]);
+  const recordingCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const recordingRafRef = useRef<number | null>(null);
+  const recordingAudioCtxRef = useRef<AudioContext | null>(null);
 
   const authPayload = role === "agent"
     ? { agentUserId: participantId, sessionId, name: participantName }
@@ -335,18 +338,80 @@ export default function CallRoom({
 
     if (recording) {
       mediaRecorderRef.current?.stop();
+      if (recordingRafRef.current) cancelAnimationFrame(recordingRafRef.current);
+      recordingRafRef.current = null;
+      recordingAudioCtxRef.current?.close();
+      recordingAudioCtxRef.current = null;
+      recordingCanvasRef.current = null;
       socket.emit("recording:stop", {}, () => {});
     } else {
-      if (!localStream) return;
+      const local = localStreamRef.current;
+      if (!local) return;
+
+      const allStreams = [local, ...Array.from(remoteStreams.values())];
+      const peers = allStreams.length;
+      const cols = Math.ceil(Math.sqrt(peers));
+      const rows = Math.ceil(peers / cols);
+      const TILE_W = 640;
+      const TILE_H = 360;
+      const canvas = document.createElement("canvas");
+      canvas.width = TILE_W * cols;
+      canvas.height = TILE_H * rows;
+      recordingCanvasRef.current = canvas;
+      const ctx = canvas.getContext("2d")!;
+
+      // Create hidden video elements for each stream
+      const videos = allStreams.map((s) => {
+        const v = document.createElement("video");
+        v.srcObject = s;
+        v.muted = true;
+        v.autoplay = true;
+        v.playsInline = true;
+        v.play().catch(() => {});
+        return v;
+      });
+
+      // Draw loop
+      function drawFrame() {
+        ctx.fillStyle = "#0f172a";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        videos.forEach((v, i) => {
+          const col = i % cols;
+          const row = Math.floor(i / cols);
+          try { ctx.drawImage(v, col * TILE_W, row * TILE_H, TILE_W, TILE_H); } catch {}
+        });
+        recordingRafRef.current = requestAnimationFrame(drawFrame);
+      }
+      drawFrame();
+
+      // Mix all audio tracks
+      const audioCtx = new AudioContext();
+      recordingAudioCtxRef.current = audioCtx;
+      const dest = audioCtx.createMediaStreamDestination();
+      allStreams.forEach((s) => {
+        s.getAudioTracks().forEach((t) => {
+          const src = audioCtx.createMediaStreamSource(new MediaStream([t]));
+          src.connect(dest);
+        });
+      });
+
+      // Combine canvas video + mixed audio
+      const videoStream = canvas.captureStream(30);
+      const combined = new MediaStream([
+        ...videoStream.getVideoTracks(),
+        ...dest.stream.getAudioTracks(),
+      ]);
+
       recordingChunksRef.current = [];
       const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
         ? "video/webm;codecs=vp9,opus"
         : "video/webm";
-      const recorder = new MediaRecorder(localStream, { mimeType });
+      const recorder = new MediaRecorder(combined, { mimeType });
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) recordingChunksRef.current.push(e.data);
       };
       recorder.onstop = () => {
+        videos.forEach((v) => { v.srcObject = null; });
         const blob = new Blob(recordingChunksRef.current, { type: "video/webm" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -375,6 +440,8 @@ export default function CallRoom({
       if (mediaRecorderRef.current?.state !== "inactive") {
         mediaRecorderRef.current?.stop();
       }
+      if (recordingRafRef.current) cancelAnimationFrame(recordingRafRef.current);
+      recordingAudioCtxRef.current?.close();
     };
   }, []);
 

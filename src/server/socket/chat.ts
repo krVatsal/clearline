@@ -38,21 +38,32 @@ export function registerChatNamespace(io: SocketIOServer) {
   });
 
   chat.on("connection", async (socket: Socket) => {
-    const { participantId, sessionId, role, name } = socket.data as {
-      participantId: string;
-      sessionId: string;
-      role: "agent" | "customer";
-      name: string;
-    };
+    logger.info({ data: socket.data }, "Chat socket raw connection");
+
+    const participantId = socket.data.participantId as string;
+    const sessionId = socket.data.sessionId as string;
+    const role = socket.data.role as "agent" | "customer";
+    const name = socket.data.name as string;
+
+    if (!participantId || !sessionId || !role) {
+      logger.error({ data: socket.data }, "Chat socket missing data, disconnecting");
+      socket.disconnect(true);
+      return;
+    }
 
     logger.info({ participantId, sessionId }, "Chat socket connected");
     socket.join(sessionId);
 
-    const history = await prisma.chatMessage.findMany({
-      where: { session_id: sessionId },
-      orderBy: { timestamp: "asc" },
-      take: 100,
-    });
+    let history: unknown[] = [];
+    try {
+      history = await prisma.chatMessage.findMany({
+        where: { session_id: sessionId },
+        orderBy: { timestamp: "asc" },
+        take: 100,
+      });
+    } catch (err) {
+      logger.error({ err }, "Failed to fetch chat history");
+    }
 
     socket.emit("chat:history", history);
 
@@ -70,7 +81,7 @@ export function registerChatNamespace(io: SocketIOServer) {
             file_meta: { name: data.name, size: data.size, type: data.type },
           },
         });
-        chat.to(sessionId).emit("chat:message", message);
+        chat.in(sessionId).emit("chat:message", message);
         callback?.({ ok: true, id: message.id });
       } catch (err) {
         logger.error({ err }, "Error saving file message");
@@ -92,7 +103,7 @@ export function registerChatNamespace(io: SocketIOServer) {
           },
         });
 
-        chat.to(sessionId).emit("chat:message", message);
+        chat.in(sessionId).emit("chat:message", message);
         callback?.({ ok: true, id: message.id });
       } catch (err) {
         logger.error({ err }, "Error saving chat message");
