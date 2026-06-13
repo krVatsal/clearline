@@ -29,6 +29,8 @@ interface ParticipantInfo {
 }
 
 const socketParticipants = new Map<string, ParticipantInfo>();
+// participantId → socket.id of their currently active connection
+const activeSocketByParticipant = new Map<string, string>();
 
 function notifyAdmin(io: SocketIOServer, sessionId: string) {
   io.of("/admin").emit("admin:session-changed", { sessionId });
@@ -83,6 +85,40 @@ export function registerMediaNamespace(io: SocketIOServer) {
       logger.info({ participantId, sessionId }, "Participant reconnected within grace window");
     }
 
+    // Kick any existing socket for this participant (duplicate tab / stale connection)
+    const existingSocketId = activeSocketByParticipant.get(participantId);
+    if (existingSocketId && existingSocketId !== socket.id) {
+      const existingSocket = media.sockets.get(existingSocketId);
+      if (existingSocket) {
+        logger.info({ participantId, existingSocketId }, "Kicking duplicate socket");
+        existingSocket.emit("session:duplicate", { message: "Connected from another tab or device" });
+        existingSocket.disconnect(true);
+      }
+      // Clean up stale producers/transports from old socket
+      const room = getRoom(sessionId);
+      if (room) {
+        for (const [key, producer] of room.producers) {
+          if (key.startsWith(participantId)) {
+            producer.close();
+            room.producers.delete(key);
+          }
+        }
+        for (const [key, transport] of room.transports) {
+          if (key.startsWith(participantId)) {
+            transport.close();
+            room.transports.delete(key);
+          }
+        }
+        for (const [key, consumer] of room.consumers) {
+          if (key.startsWith(participantId)) {
+            consumer.close();
+            room.consumers.delete(key);
+          }
+        }
+      }
+    }
+    activeSocketByParticipant.set(participantId, socket.id);
+
     socket.join(sessionId);
 
     socketParticipants.set(socket.id, {
@@ -97,25 +133,28 @@ export function registerMediaNamespace(io: SocketIOServer) {
       await createRoom(sessionId);
       await addParticipant(sessionId, participantId);
 
-      await prisma.sessionEvent.create({
-        data: {
-          session_id: sessionId,
-          participant_role: role,
-          participant_id: participantId,
-          event_type: "join",
-        },
-      });
-
       const room = getRoom(sessionId)!;
       socket.emit("router:rtp-capabilities", room.router.rtpCapabilities);
 
       const participants = await getParticipants(sessionId);
 
-      socket.to(sessionId).emit("peer:joined", {
-        participantId,
-        role,
-        name,
-      });
+      // Only emit peer:joined if this is a fresh join, not a reconnect within grace window
+      if (!wasInGrace) {
+        await prisma.sessionEvent.create({
+          data: {
+            session_id: sessionId,
+            participant_role: role,
+            participant_id: participantId,
+            event_type: "join",
+          },
+        });
+
+        socket.to(sessionId).emit("peer:joined", {
+          participantId,
+          role,
+          name,
+        });
+      }
 
       notifyAdmin(io, sessionId);
 
@@ -446,6 +485,10 @@ export function registerMediaNamespace(io: SocketIOServer) {
     socket.on("disconnect", async (reason) => {
       logger.info({ participantId, sessionId, reason }, "Media socket disconnected");
       socketParticipants.delete(socket.id);
+      // Only clear active tracking if this socket is still the registered one
+      if (activeSocketByParticipant.get(participantId) === socket.id) {
+        activeSocketByParticipant.delete(participantId);
+      }
 
       socket.to(sessionId).emit("peer:left", { participantId, role, name });
       notifyAdmin(io, sessionId);

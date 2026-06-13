@@ -47,6 +47,7 @@ export default function CallRoom({
   const [videoOff, setVideoOff] = useState(false);
   const [recording, setRecording] = useState(false);
   const [sessionEnded, setSessionEnded] = useState(false);
+  const [duplicateSession, setDuplicateSession] = useState(false);
   const [qualityStats, setQualityStats] = useState<QualityStats>({});
   const [connected, setConnected] = useState(false);
   const [peerNames, setPeerNames] = useState<Map<string, string>>(new Map());
@@ -164,6 +165,12 @@ export default function CallRoom({
     socket.on("session:ended", () => {
       setSessionEnded(true);
       setTimeout(() => router.push("/dashboard"), 3000);
+    });
+
+    socket.on("session:duplicate", () => {
+      setSessionEnded(true);
+      setDuplicateSession(true);
+      setTimeout(() => router.push("/dashboard"), 4000);
     });
 
     socket.on("room:joined", async ({ existingProducers }) => {
@@ -450,10 +457,16 @@ export default function CallRoom({
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
-            <span className="text-3xl">📞</span>
+            <span className="text-3xl">{duplicateSession ? "⚠️" : "📞"}</span>
           </div>
-          <h2 className="text-xl font-semibold text-white mb-2">Call Ended</h2>
-          <p className="text-slate-400">Redirecting you back...</p>
+          <h2 className="text-xl font-semibold text-white mb-2">
+            {duplicateSession ? "Connected elsewhere" : "Call Ended"}
+          </h2>
+          <p className="text-slate-400">
+            {duplicateSession
+              ? "This session was opened in another tab or device. Redirecting..."
+              : "Redirecting you back..."}
+          </p>
         </div>
       </div>
     );
