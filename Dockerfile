@@ -1,13 +1,15 @@
 FROM node:22-alpine AS base
 
-RUN apk add --no-cache python3 make g++ libc6-compat
+RUN apk add --no-cache python3 make g++ libc6-compat && \
+    ln -sf /usr/bin/python3 /usr/bin/python
 
 WORKDIR /app
 
 # ── deps: install all dependencies ───────────────────────────────────────────
 FROM base AS deps
 COPY package.json package-lock.json* ./
-RUN npm install --frozen-lockfile || npm install
+RUN npm ci --ignore-scripts && \
+    npm rebuild mediasoup --build-from-source
 
 # ── builder: compile Next.js + server TS ─────────────────────────────────────
 FROM base AS builder
