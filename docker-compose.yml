@@ -1,0 +1,87 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: clearline_postgres
+    environment:
+      POSTGRES_USER: clearline
+      POSTGRES_PASSWORD: clearline_pass
+      POSTGRES_DB: clearline_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clearline -d clearline_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: clearline_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: clearline_minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: clearline_app
+    environment:
+      DATABASE_URL: postgresql://clearline:clearline_pass@postgres:5432/clearline_db
+      REDIS_URL: redis://redis:6379
+      NEXTAUTH_SECRET: supersecretkey-change-in-production-minimum-32-chars
+      NEXTAUTH_URL: http://localhost:3000
+      INVITE_JWT_SECRET: invite-secret-change-in-production-minimum-32-chars
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: "9000"
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: clearline
+      MINIO_USE_SSL: "false"
+      PORT: "3000"
+      NODE_ENV: production
+      MEDIASOUP_MIN_PORT: "40000"
+      MEDIASOUP_MAX_PORT: "40099"
+      MEDIASOUP_ANNOUNCED_IP: "127.0.0.1"
+    ports:
+      - "3000:3000"
+      - "40000-40099:40000-40099/udp"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:

@@ -1,0 +1,97 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  agent
+  admin
+  customer
+}
+
+enum SessionStatus {
+  active
+  ended
+}
+
+enum RecordingStatus {
+  idle
+  recording
+  processing
+  ready
+}
+
+enum EventType {
+  join
+  leave
+  mute
+  unmute
+  video_off
+  video_on
+  recording_start
+  recording_stop
+}
+
+enum MessageType {
+  text
+  file
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  password_hash String
+  role          Role      @default(agent)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sessions      Session[]
+}
+
+model Session {
+  id                  String          @id @default(cuid())
+  agent_id            String
+  agent               User            @relation(fields: [agent_id], references: [id])
+  status              SessionStatus   @default(active)
+  invite_token_hash   String          @unique
+  customer_name       String?
+  created_at          DateTime        @default(now())
+  ended_at            DateTime?
+  recording_status    RecordingStatus @default(idle)
+  recording_url       String?
+  events              SessionEvent[]
+  messages            ChatMessage[]
+}
+
+model SessionEvent {
+  id               String    @id @default(cuid())
+  session_id       String
+  session          Session   @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  participant_role Role
+  participant_id   String?
+  event_type       EventType
+  metadata         Json?
+  timestamp        DateTime  @default(now())
+
+  @@index([session_id, timestamp])
+}
+
+model ChatMessage {
+  id          String      @id @default(cuid())
+  session_id  String
+  session     Session     @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  sender_role Role
+  sender_id   String
+  sender_name String?
+  type        MessageType @default(text)
+  content     String?
+  file_url    String?
+  file_meta   Json?
+  timestamp   DateTime    @default(now())
+
+  @@index([session_id, timestamp])
+}
