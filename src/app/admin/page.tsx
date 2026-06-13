@@ -3,6 +3,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import AdminDashboard from "./AdminDashboard";
+import type { Prisma } from "@prisma/client";
 
 export default async function AdminPage() {
   const session = await getServerSession(authOptions);
@@ -25,7 +26,7 @@ export default async function AdminPage() {
   return (
     <AdminDashboard
       initialStats={{ active: activeSessions, total: totalSessions, messages: totalMessages }}
-      recentSessions={recentSessions.map((s) => ({
+      recentSessions={recentSessions.map((s: Prisma.SessionGetPayload<{ include: { agent: { select: { name: true; email: true } }; _count: { select: { messages: true; events: true } } } }>) => ({
         id: s.id,
         created_at: s.created_at.toISOString(),
         ended_at: s.ended_at?.toISOString() || null,
