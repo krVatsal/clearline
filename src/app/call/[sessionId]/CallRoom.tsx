@@ -62,6 +62,7 @@ export default function CallRoom({
   const pendingProducersRef = useRef<{ producerId: string; participantId: string; kind: string; name?: string }[]>([]);
   const audioProducerRef = useRef<mediasoupClient.types.Producer | null>(null);
   const videoProducerRef = useRef<mediasoupClient.types.Producer | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
   const consumersRef = useRef<Map<string, mediasoupClient.types.Consumer>>(new Map());
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordingChunksRef = useRef<Blob[]>([]);
@@ -78,6 +79,7 @@ export default function CallRoom({
 
   const startMedia = useCallback(async (stream: MediaStream) => {
     setLocalStream(stream);
+    localStreamRef.current = stream;
     const socket = io("/media", {
       auth: authPayload,
       transports: ["websocket"],
@@ -304,12 +306,23 @@ export default function CallRoom({
   function toggleVideo() {
     const producer = videoProducerRef.current;
     const socket = mediaSocketRef.current;
+    const stream = localStreamRef.current;
     if (!producer || !socket) return;
 
     if (videoOff) {
+      // Re-enable: restore track so camera output comes back
+      const videoTrack = stream?.getVideoTracks()[0];
+      if (videoTrack) {
+        videoTrack.enabled = true;
+      }
       producer.resume();
       socket.emit("producer:resume", { kind: "video" });
     } else {
+      // Disable: mute track (keeps camera acquired, avoids re-acquire lag)
+      const videoTrack = stream?.getVideoTracks()[0];
+      if (videoTrack) {
+        videoTrack.enabled = false;
+      }
       producer.pause();
       socket.emit("producer:pause", { kind: "video" });
     }

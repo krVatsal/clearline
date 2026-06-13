@@ -31,7 +31,7 @@ export default function VideoTile({ stream, name, isLocal, audioMuted, videoOff 
     if (videoRef.current && stream) {
       videoRef.current.srcObject = stream;
     }
-  }, [stream, trackCount]);
+  }, [stream, trackCount, videoOff]);
 
   return (
     <div className="video-tile relative bg-slate-800 rounded-xl overflow-hidden flex items-center justify-center min-h-[200px]">
