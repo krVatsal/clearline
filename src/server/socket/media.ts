@@ -53,7 +53,7 @@ export function registerMediaNamespace(io: SocketIOServer) {
       if (!payload || payload.sessionId !== sessionId) {
         return next(new Error("Invalid invite token"));
       }
-      socket.data.participantId = `customer_${socket.id}`;
+      socket.data.participantId = payload.customerId || `cust_${socket.id}`;
       socket.data.sessionId = sessionId;
       socket.data.role = "customer";
       socket.data.name = socket.handshake.auth.name || "Customer";
@@ -441,13 +441,14 @@ export function registerMediaNamespace(io: SocketIOServer) {
       logger.info({ participantId, sessionId, reason }, "Media socket disconnected");
       socketParticipants.delete(socket.id);
 
+      socket.to(sessionId).emit("peer:left", { participantId, role, name });
+
       await markDisconnected(sessionId, participantId, 30);
 
       setTimeout(async () => {
         const stillDisconnected = await isWithinReconnectWindow(sessionId, participantId);
         if (stillDisconnected) {
           await removeParticipant(sessionId, participantId);
-          socket.to(sessionId).emit("peer:left", { participantId, role });
 
           await prisma.sessionEvent.create({
             data: {

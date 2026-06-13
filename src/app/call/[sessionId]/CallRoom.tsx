@@ -50,6 +50,8 @@ export default function CallRoom({
   const [qualityStats, setQualityStats] = useState<QualityStats>({});
   const [connected, setConnected] = useState(false);
   const [peerNames, setPeerNames] = useState<Map<string, string>>(new Map());
+  const [toasts, setToasts] = useState<{ id: number; message: string; type: "join" | "leave" }[]>([]);
+  const toastIdRef = useRef(0);
 
   const mediaSocketRef = useRef<Socket | null>(null);
   const deviceRef = useRef<mediasoupClient.Device | null>(null);
@@ -65,6 +67,12 @@ export default function CallRoom({
   const authPayload = role === "agent"
     ? { agentUserId: participantId, sessionId, name: participantName }
     : { token: inviteToken, sessionId, name: participantName };
+
+  function addToast(message: string, type: "join" | "leave") {
+    const id = ++toastIdRef.current;
+    setToasts((prev) => [...prev, { id, message, type }]);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000);
+  }
 
   const startMedia = useCallback(async (stream: MediaStream) => {
     setLocalStream(stream);
@@ -101,14 +109,27 @@ export default function CallRoom({
 
     socket.on("peer:joined", ({ participantId: peerId, name }) => {
       setPeerNames((prev) => new Map(prev).set(peerId, name));
+      addToast(`${name} joined`, "join");
     });
 
-    socket.on("peer:left", ({ participantId: peerId }) => {
+    socket.on("peer:left", ({ participantId: peerId, name: peerName }) => {
+      const displayName = peerName || peerNames.get(peerId) || "Participant";
       setRemoteStreams((prev) => {
         const next = new Map(prev);
         next.delete(peerId);
         return next;
       });
+      setPeerNames((prev) => {
+        const next = new Map(prev);
+        next.delete(peerId);
+        return next;
+      });
+      setPeerPaused((prev) => {
+        const next = new Map(prev);
+        next.delete(peerId);
+        return next;
+      });
+      addToast(`${displayName} left the call`, "leave");
     });
 
     socket.on("peer:producer:paused", ({ participantId: peerId, kind }) => {
@@ -348,6 +369,23 @@ export default function CallRoom({
 
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col">
+      {toasts.length > 0 && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 pointer-events-none">
+          {toasts.map((t) => (
+            <div
+              key={t.id}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium shadow-lg backdrop-blur-sm border animate-fade-in
+                ${t.type === "join"
+                  ? "bg-green-500/20 border-green-500/30 text-green-300"
+                  : "bg-slate-700/80 border-white/10 text-slate-300"
+                }`}
+            >
+              <span className={`w-2 h-2 rounded-full ${t.type === "join" ? "bg-green-400" : "bg-slate-400"}`} />
+              {t.message}
+            </div>
+          ))}
+        </div>
+      )}
       <header className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className={`w-2.5 h-2.5 rounded-full ${connected ? "bg-green-400 animate-pulse" : "bg-red-400"}`} />
